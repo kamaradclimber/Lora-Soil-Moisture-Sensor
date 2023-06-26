@@ -1,5 +1,12 @@
 # Lora Soil Moisture Sensor
 
+⚠ This includes modifications from https://github.com/tommyjlong/LoRa-Soil-Sensor/
+
+Modifications from the original:
+- json output (instead of a single line string)
+- better battery value reporting
+- humidity report adjustment based on battery level (see [this thread](https://community.home-assistant.io/t/awesome-lora-soil-sensor/304351/70?u=kamaradclimber) )
+
 [toc]
 
 # Makerfabs

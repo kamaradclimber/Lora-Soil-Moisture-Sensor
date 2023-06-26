@@ -1,12 +1,14 @@
 #include <SPI.h>
 #include <Wire.h>
-#include <RadioLib.h>
+#include <RadioLib.h>  //Using version 4.6.0. Version 6.0.0 is too fat
 #include <avr/wdt.h>
 #include <avr/sleep.h>
 #include "I2C_AHT10.h"
+#include <ArduinoJson.h>
 
 //#define NODENAME "LORA_POWER_1"
-String node_id = String("ID") + "010000";
+String node_id = String("ID") + "010455";
+//String node_id = String("ID") + "010289";
 
 //Set sleep time, when value is 1 almost sleep 20s,when value is 450, almost 1 hour.
 #define SLEEP_CYCLE 450
@@ -14,13 +16,14 @@ String node_id = String("ID") + "010000";
 //Lora set
 //Set Lora frequency
 // #define FREQUENCY 434.0
-// #define FREQUENCY 868.0
-#define FREQUENCY 915.0
+#define FREQUENCY 868.0
+// #define FREQUENCY 915.0
 
 #define BANDWIDTH 125.0
 #define SPREADING_FACTOR 9
 #define CODING_RATE 7
 #define OUTPUT_POWER 10
+//#define OUTPUT_POWER 17  //docs say range is 2 to 17 dBm
 #define PREAMBLE_LEN 8
 #define GAIN 0
 
@@ -45,6 +48,8 @@ String node_id = String("ID") + "010000";
 
 SX1276 radio = new Module(LORA_CS, DIO0, LORA_RST, DIO1);
 AHT10 humiditySensor;
+
+String jsonoutput = "";  // string for JSON transmission
 
 bool readSensorStatus = false;
 int sensorValue = 0; // variable to store the value coming from the sensor
@@ -87,13 +92,13 @@ void Lora_init()
     if (state == ERR_NONE)
     {
 #if DEBUG_OUT_ENABLE
-        Serial.println(F("success!"));
+        Serial.println(F("LoRa Radio Started successfully!"));
 #endif
     }
     else
     {
 #if DEBUG_OUT_ENABLE
-        Serial.print(F("failed, code "));
+        Serial.print(F("LoRa Radio failed, code: "));
         Serial.println(state);
 #endif
         // while (true)
@@ -277,7 +282,7 @@ void do_some_work()
         ADCSRA |= (1 << ADSC);
 
         delay(10);
-        
+
         if ((ADCSRA & 0x40) == 0)
         {
             ADC_O_1 = ADCL;
@@ -291,7 +296,7 @@ void do_some_work()
             float bat = (float)batValue * 3.3;
             bat = bat / 1024.0;
             Serial.print(bat);
-            Serial.print("V");
+            Serial.println("V");
 #endif
         }
         ADCSRA |= (1 << ADIF); //reset as required
@@ -318,12 +323,36 @@ void all_pins_low()
 
 void send_lora()
 {
-    String message = "INEDX:" + (String)packetnum + " H:" + (String)humidity + " T:" + (String)temperature + " ADC:" + (String)sensorValue + " BAT:" + (String)batValue;
-    String back_str = node_id + " REPLY : SOIL " + message;
+    // create battery_level instead of raw ADC value
+      float battery_level = (float)batValue * 3.3;
+      battery_level = battery_level / 1024.0;
+
+    // Moisture ADC value decreases as battery_level decreases, so make a rough adjustment
+#define BATT_ADJUST_FACTOR 45
+    sensorValue = sensorValue -((battery_level - 2.0)*BATT_ADJUST_FACTOR);
+    if (sensorValue < 500)
+        sensorValue = 500;
+
+    // Modify SensorValue to show moisture between 0 to 100 percent
+    // instead of dryness ADC levels of 1000 = Air dry to 500 = ultrawet
+    sensorValue = 100 -((sensorValue - 500)/5);
+
+    // Create json object for transfer
+    DynamicJsonDocument root(256);
+    root["node_id"] = node_id;
+    root["hum"] = humidity;
+    root["temp"] = temperature;
+    root["adc"] = sensorValue;
+    root["bat"] = battery_level;
+
+  serializeJson(root, jsonoutput);
 
 #if DEBUG_OUT_ENABLE
-    Serial.println(back_str);
+  Serial.print("LoRa TX: ");
+  serializeJson(root, Serial);
+  Serial.println("");
 #endif
 
-    radio.transmit(back_str);
+    radio.transmit(jsonoutput);
+    jsonoutput = "";
 }
